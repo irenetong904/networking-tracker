@@ -9,14 +9,39 @@ touch it, enforced by Postgres Row Level Security rather than just app-layer cod
 
 ## Screenshots / walkthrough
 
-> The four items below are the assignment's required evidence. Capture each one against your own
-> deployed app (or local dev) and drop the images in a `docs/` folder, then replace these lines with
-> `![...](docs/your-file.png)`.
+> Capture each item below against your own deployed app (or local dev), drop the images in a
+> `docs/` folder, and replace these lines with `![...](docs/your-file.png)`. Every item has already
+> been manually verified end-to-end against a live Neon project (see results below) — what's
+> missing is just the visual capture.
 
 - [ ] Sign-in and sign-out flow
 - [ ] Creating, editing, deleting, and refreshing a contact
 - [ ] Two accounts proving User A cannot see or change User B's contacts
 - [ ] An invalid input (empty name or bad priority) failing safely with a clear message
+
+### Verified manually against a live Neon project (2026-09-03)
+
+- **Sign-up / sign-in / sign-out**: created `usera-test@example.com`, session persisted across
+  navigation, sign-out cleared it and redirected to `/sign-in`.
+- **Invalid name**: submitting a whitespace-only name rendered "Name is required." inline and made
+  no request that touched the database.
+- **Create / edit / delete / refresh**: added a contact, edited its notes, confirmed the change
+  survived a full page reload, then deleted it and confirmed it was gone after reload.
+- **Sort**: clicking a column header re-sorted the list (verified via network requests, e.g.
+  `GET /api/contacts?sort=priority&order=asc`).
+- **Two-account isolation**: signed in as a second user, `userb-test@example.com`, and confirmed
+  the contacts list was empty (User A's contact never appeared). Then, using User B's own valid
+  session token, sent direct `PATCH` and `DELETE` requests to User A's contact id straight at the
+  backend (bypassing the UI entirely):
+  ```
+  PATCH /api/contacts/<user-a-contact-id>  → 404 {"error":"Contact not found."}
+  DELETE /api/contacts/<user-a-contact-id> → 404 {"error":"Contact not found."}
+  ```
+  A direct database check (bypassing RLS, as the table owner) confirmed User A's row was completely
+  unchanged afterward — RLS silently excluded it from User B's query rather than letting the write
+  touch it. This surfaced a real bug, since fixed: the backend originally read a 200 with an empty
+  result as success, when it actually meant "RLS matched zero rows." `backend/src/routes/contacts.ts`
+  now treats an empty array from update/delete the same as an error and returns 404.
 
 ## Features
 
@@ -116,19 +141,52 @@ Open `http://localhost:5173`, sign up, and start adding contacts.
 
 ## Neon project setup
 
-I can't create a Neon account or project on your behalf — do this once, yourself, in the Neon
-console:
+I can't create a Neon account or project on your behalf — do this once, yourself. Either path
+below gets you the same two URLs and a `DATABASE_URL`.
+
+**Option A — Neon console:**
 
 1. Create a Neon project (free tier is enough).
 2. Go to **your database → Data API**, check **Use Managed Better Auth**, optionally check
    **Grant public schema access**, and click **Enable Data API**.
 3. Copy the **Auth URL** and **Data API URL** shown there into your two `.env.local` files as
    `NEXT_PUBLIC_NEON_AUTH_URL` / `NEXT_PUBLIC_NEON_DATA_API_URL`.
-4. Open the Neon SQL editor (or run `psql "$DATABASE_URL" -f db/schema.sql` locally) and execute
-   [`db/schema.sql`](db/schema.sql) — this creates the `contacts` table, its `CHECK` constraints,
-   and all four RLS policies.
-5. Once deployed to Vercel, add your production domain to Neon Auth's **trusted origins** list, or
-   sign-in requests from the live site will be rejected.
+
+**Option B — Neon CLI** (what this project was actually set up with):
+
+```bash
+npm i -g neon@latest
+neon login                                        # opens a browser to authenticate
+neon link --project-id <your-project-id> --branch production
+neon config init                                  # scaffolds neon.ts
+```
+
+Edit the generated `neon.ts` to `defineConfig({ auth: true, dataApi: true })`, then:
+
+```bash
+neon deploy   # provisions Neon Auth + the Data API, writes .env.local at the repo root
+```
+
+This writes `DATABASE_URL`, `NEON_AUTH_BASE_URL`, and `NEON_DATA_API_URL` — map the latter two into
+`frontend/.env.local` / `backend/.env.local` as `NEXT_PUBLIC_NEON_AUTH_URL` /
+`NEXT_PUBLIC_NEON_DATA_API_URL` (this repo's code uses the `NEXT_PUBLIC_` names the assignment
+specifies; the CLI's own names differ).
+
+**Either way, finish with:**
+
+4. Run [`db/schema.sql`](db/schema.sql) against `DATABASE_URL` (Neon's SQL editor, or
+   `psql "$DATABASE_URL" -f db/schema.sql`, or any Postgres client) — it creates the `contacts`
+   table, its `CHECK` constraints, all four RLS policies, **and the `GRANT`s that make them take
+   effect**. That last part matters: RLS only narrows which rows a query can touch — Postgres still
+   checks table-level `GRANT`s first, and without `grant select, insert, update, delete on
+   contacts to authenticated`, every request fails with `permission denied for table contacts`
+   before RLS is ever evaluated. The Neon console's "Grant public schema access" checkbox does this
+   for you; the CLI/`neon.ts` path does not, so `db/schema.sql` includes it explicitly — this is
+   exactly the failure this project's own setup hit before the `GRANT` was added.
+5. Allow localhost for local dev sign-in: `neon neon-auth domain allow-localhost enable` (or add it
+   in the console). Once deployed, add your production Vercel domain the same way — via
+   `neon neon-auth domain add https://<your-app>.vercel.app` or the console — or sign-in requests
+   from the live site will fail with an "invalid domain" error.
 
 ## Environment variables
 
@@ -240,8 +298,8 @@ project or network access to run).
    `NEXT_PUBLIC_NEON_DATA_API_URL` (Production **and** Preview). `DATABASE_URL` /
    `NEON_AUTH_BASE_URL` / `NEON_AUTH_COOKIE_SECRET` are not required in Vercel since the deployed
    code never reads them (see [Environment variables](#environment-variables)).
-4. Redeploy, then add the resulting `https://<your-app>.vercel.app` domain to Neon Auth's trusted
-   origins list in the Neon console.
+4. Redeploy, then trust the resulting `https://<your-app>.vercel.app` domain with
+   `neon neon-auth domain add https://<your-app>.vercel.app` (or the console).
 5. Open the deployed URL in a private browser window and re-run the full checklist below.
 
 ## Verification checklist
@@ -265,11 +323,6 @@ project or network access to run).
 - `NEON_AUTH_BASE_URL` / `NEON_AUTH_COOKIE_SECRET` are unused: a future version could add a small
   server-side session-verification step in the backend (independent of the bearer token forwarded
   from the browser) as extra defense-in-depth, using Neon's server-side auth proxy helpers.
-- The frontend's `getBearerToken()` helper (`frontend/src/lib/neonClient.ts`) was written and
-  verified against the SDK's shipped type declarations, but the exact client method that returns a
-  raw JWT (as opposed to the httpOnly session cookie) could only be fully confirmed once this app
-  is wired up to a live Neon project — verify it works end-to-end after your first sign-in, since
-  it's the one integration point that couldn't be tested without real Neon credentials in hand.
 - No pagination — fine at the scale of a personal contact list, would need `limit`/`offset` (or
   keyset pagination) if a user tracked thousands of contacts.
 - No optimistic UI updates on edit/delete; every action waits for the server round-trip before

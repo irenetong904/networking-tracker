@@ -67,19 +67,22 @@ contactsRouter.patch('/:id', async (req, res) => {
     .update(parsed.data)
     .eq('id', req.params.id)
     .select()
-    .single()
 
-  if (error) {
+  // RLS silently drops rows the caller doesn't own rather than erroring, so
+  // an update matching nothing (wrong id, or someone else's contact) comes
+  // back as an empty array, not an `error` — check for that explicitly.
+  if (error || !data || data.length === 0) {
     res.status(404).json({ error: 'Contact not found.' })
     return
   }
-  res.json(data)
+  res.json(data[0])
 })
 
 contactsRouter.delete('/:id', async (req, res) => {
   const client = createRequestScopedClient(req.bearerToken!)
-  const { error } = await client.from('contacts').delete().eq('id', req.params.id)
-  if (error) {
+  const { data, error } = await client.from('contacts').delete().eq('id', req.params.id).select()
+
+  if (error || !data || data.length === 0) {
     res.status(404).json({ error: 'Contact not found.' })
     return
   }

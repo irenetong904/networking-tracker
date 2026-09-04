@@ -7,3 +7,6 @@ dist/
 .env.*.local
 .DS_Store
 *.log
+.neon
+.claude/
+skills-lock.json

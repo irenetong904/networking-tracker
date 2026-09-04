@@ -19,35 +19,49 @@ create table if not exists public.contacts (
 
 -- Defense-in-depth: even if a client bypassed our Express validation and hit
 -- the Data API directly, Postgres itself refuses an empty name or a bad
--- priority value.
-alter table public.contacts
-  add constraint contacts_name_not_blank check (btrim(name) <> '');
+-- priority value. Wrapped so this file is safe to re-run.
+do $$ begin
+  alter table public.contacts
+    add constraint contacts_name_not_blank check (btrim(name) <> '');
+exception
+  when duplicate_object then null;
+end $$;
 
 create index if not exists contacts_user_id_idx on public.contacts (user_id);
 
 alter table public.contacts enable row level security;
+
+-- RLS narrows which rows a query can touch, but Postgres still checks
+-- table-level GRANTs first — without these, every request is rejected with
+-- "permission denied for table contacts" before RLS is ever evaluated.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.contacts to authenticated;
 
 -- One policy per operation, each scoped to the signed-in user via
 -- auth.user_id(), which reads the JWT's `sub` claim as text. WITH CHECK on
 -- insert/update re-validates the *resulting* row, so an update can never
 -- reassign a contact to someone else's user_id.
 
+drop policy if exists contacts_select on public.contacts;
 create policy contacts_select on public.contacts
   for select
   to authenticated
   using (auth.user_id() = user_id);
 
+drop policy if exists contacts_insert on public.contacts;
 create policy contacts_insert on public.contacts
   for insert
   to authenticated
   with check (auth.user_id() = user_id);
 
+drop policy if exists contacts_update on public.contacts;
 create policy contacts_update on public.contacts
   for update
   to authenticated
   using (auth.user_id() = user_id)
   with check (auth.user_id() = user_id);
 
+drop policy if exists contacts_delete on public.contacts;
 create policy contacts_delete on public.contacts
   for delete
   to authenticated

@@ -22,18 +22,18 @@ export const neon = createClient({
 
 /**
  * Returns the current user's JWT for calling our own backend, or null if
- * signed out. Isolated here because the exact Better Auth client method that
- * exposes the raw JWT (as opposed to the httpOnly session cookie) can only be
- * confirmed against a live Neon Auth server — verify this call once your
- * project is connected (see README "Known limitations").
+ * signed out. `auth.token()` is Neon's JWT-plugin client method (distinct
+ * from `getSession()`, which returns the same session but is meant for UI
+ * state); the JWT itself lives at `data.session.token`, confirmed against a
+ * live Neon Auth server.
  */
 export async function getBearerToken(): Promise<string | null> {
   const authClient = neon.auth as unknown as {
-    token?: () => Promise<{ data: { token: string } | null; error: unknown }>
+    token?: () => Promise<{ data: { session: { token: string } } | null; error: unknown }>
   }
   if (typeof authClient.token === 'function') {
     const { data } = await authClient.token()
-    return data?.token ?? null
+    return data?.session?.token ?? null
   }
   return null
 }
