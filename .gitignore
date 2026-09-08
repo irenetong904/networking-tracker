@@ -10,3 +10,5 @@ dist/
 .neon
 .claude/
 skills-lock.json
+.vercel
+.env*

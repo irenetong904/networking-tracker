@@ -5,7 +5,7 @@ someone once (name, company, role, where you met, notes, priority), then sort, f
 delete them any time. Every contact belongs to exactly one signed-in user; nobody else can see or
 touch it, enforced by Postgres Row Level Security rather than just app-layer code.
 
-**Live app:** `TODO — paste your Vercel production URL here after deploying (Build order step 9)`
+**Live app:** https://networking-tracker-ten-wine.vercel.app
 
 ## Screenshots / walkthrough
 
@@ -104,7 +104,11 @@ ownership on every query regardless of what the backend does or doesn't catch.
 
 **Hosting**: a single Vercel project. `vercel.json` builds `frontend/` as a static site and
 `backend/api/index.ts` (which exports the Express app) as a Node serverless function, and routes
-`/api/*` to the function and everything else to the static build — one live URL for both halves.
+`/api/*` to the function, `/assets/*` (and the two root SVGs) straight to the static build's files,
+and everything else to `frontend/index.html` for client-side routing — one live URL for both
+halves. One non-obvious detail: `@vercel/static-build`'s output for a build rooted at
+`frontend/package.json` lands at `frontend/*` in the deployment, not `frontend/dist/*` — the
+`distDir` config flattens away, it doesn't nest under it.
 
 ## Local setup
 
@@ -302,19 +306,34 @@ project or network access to run).
    `neon neon-auth domain add https://<your-app>.vercel.app` (or the console).
 5. Open the deployed URL in a private browser window and re-run the full checklist below.
 
+**Gotcha hit during this project's own deploy**: always let Vercel build in its own cloud
+environment (`vercel --prod`, or a GitHub-connected deploy) rather than running `vercel build`
+locally and deploying with `--prebuilt`. A local build picks up whatever `frontend/.env.local` you
+have on disk for *local dev* (e.g. `VITE_API_BASE_URL=http://localhost:8787`, used to split the
+frontend and backend across two ports locally) and bakes it into the production bundle, silently
+pointing the deployed site at your laptop. Vercel's own build only sees the env vars you explicitly
+set on the project, which is what you want in production.
+
 ## Verification checklist
 
-- [ ] Sign up, sign out, sign back in
-- [ ] Add a contact with all fields filled in
-- [ ] Edit that contact and confirm the change persists after a refresh
-- [ ] Delete a contact and confirm it's gone after a refresh
-- [ ] Sort by each column, ascending and descending
-- [ ] Filter by priority and by search text
-- [ ] Submit an empty name → rejected with a clear message, nothing saved
+Checked against the live URL above:
+
+- [x] Sign up, sign out, sign back in
+- [x] Add a contact with all fields filled in
+- [x] Delete a contact and confirm it's gone after a refresh
+- [x] Submit an empty name → rejected with a clear message ("Name is required."), nothing saved
+- [x] Responsive at mobile width
+- [ ] Edit a contact and confirm the change persists after a refresh
+- [ ] Sort by each column, ascending and descending; filter by priority and by search text
 - [ ] Submit an invalid priority (only possible by tampering with the request, since the UI only
       offers the three valid options) → rejected with a clear message
 - [ ] Create two accounts (User A, User B); confirm A's contacts never appear for B and B cannot
       edit/delete A's rows even by guessing an id
+
+The unchecked items were verified against local dev pointed at this same live Neon
+project/database/backend code (see [Verified manually](#verified-manually-against-a-live-neon-project-2026-09-03)
+above, including the two-account tamper attempt) but not re-clicked through on the deployed URL
+itself — worth a final pass before submitting, since it takes a few minutes and closes the loop.
 
 ## Known limitations and what I'd improve next
 
