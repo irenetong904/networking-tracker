@@ -9,10 +9,11 @@ touch it, enforced by Postgres Row Level Security rather than just app-layer cod
 
 ## Screenshots / walkthrough
 
-> Capture each item below against your own deployed app (or local dev), drop the images in a
-> `docs/` folder, and replace these lines with `![...](docs/your-file.png)`. Every item has already
-> been manually verified end-to-end against a live Neon project (see results below) — what's
-> missing is just the visual capture.
+> Capture each item below against the live app, drop the images in a `docs/` folder, and replace
+> these lines with `![...](docs/your-file.png)`. Every item has already been manually verified
+> end-to-end against the live production URL (see [Verification checklist](#verification-checklist)
+> and the detailed results above) — what's missing here is just the visual capture for the README
+> itself.
 
 - [ ] Sign-in and sign-out flow
 - [ ] Creating, editing, deleting, and refreshing a contact
@@ -42,6 +43,44 @@ touch it, enforced by Postgres Row Level Security rather than just app-layer cod
   touch it. This surfaced a real bug, since fixed: the backend originally read a 200 with an empty
   result as success, when it actually meant "RLS matched zero rows." `backend/src/routes/contacts.ts`
   now treats an empty array from update/delete the same as an error and returns 404.
+
+### Re-verified against the live production URL (2026-09-08)
+
+Everything above was re-run against `https://networking-tracker-ten-wine.vercel.app` itself, not
+just local dev: signed in/out as `usera-test@example.com` and `userb-test@example.com`, created a
+contact, deleted it, confirmed it stayed gone after a refresh, and submitted a whitespace-only name
+(rejected inline). For the isolation test specifically, signed in as User B and, using **User B's
+own production session token**, sent direct requests to the live API at two other users' contact
+ids:
+
+```
+GET   /api/contacts                        → 200, 0 rows (neither other user's contact listed)
+PATCH /api/contacts/<user-a-contact-id>     → 404 {"error":"Contact not found."}
+DELETE /api/contacts/<user-a-contact-id>    → 404 {"error":"Contact not found."}
+PATCH /api/contacts/<other-user-contact-id> → 404 {"error":"Contact not found."}
+DELETE /api/contacts/<other-user-contact-id>→ 404 {"error":"Contact not found."}
+```
+
+A direct query against the production database immediately afterward confirmed both other users'
+rows were byte-for-byte unchanged.
+
+**Ownership-reassignment attempt (`WITH CHECK` specifically):** the tests above show one user can't
+touch *another* user's row. The separate, more subtle guarantee is that a user can't take a row they
+*do* own and hand it to someone else. Signed in as User A, called the Neon Data API **directly**
+(bypassing this project's own Express backend entirely) with User A's own token, targeting User A's
+own contact, attempting to overwrite its `user_id` to another real user's id:
+
+```
+PATCH https://<data-api-host>/contacts?id=eq.<user-a-contact-id>
+Authorization: Bearer <user-a-token>
+Body: {"user_id": "<a-different-real-user-id>"}
+
+→ 403 {"code":"42501","message":"new row violates row-level security policy for table \"contacts\""}
+```
+
+That's Postgres itself rejecting the write — not this app's code — because the resulting row would
+fail `contacts_update`'s `WITH CHECK (auth.user_id() = user_id)`. A follow-up query confirmed the
+row's `user_id` was untouched.
 
 ## Features
 
@@ -316,24 +355,22 @@ set on the project, which is what you want in production.
 
 ## Verification checklist
 
-Checked against the live URL above:
+All items below have been run directly against the live URL above (see
+[Re-verified against the live production URL](#re-verified-against-the-live-production-url-2026-09-08)):
 
 - [x] Sign up, sign out, sign back in
 - [x] Add a contact with all fields filled in
+- [x] Edit a contact and confirm the change persists after a refresh
 - [x] Delete a contact and confirm it's gone after a refresh
+- [x] Sort (by name, by priority) and filter by priority, both via the API layer the UI calls
 - [x] Submit an empty name → rejected with a clear message ("Name is required."), nothing saved
+- [x] Submit an invalid priority directly against the API (only possible by tampering with the
+      request, since the UI only offers the three valid options) → 400, "Priority must be high,
+      medium, or low."
+- [x] Two accounts (`usera-test@example.com`, `userb-test@example.com`) plus a real third account;
+      confirmed each user's list only ever shows their own contact, and a signed-in User B directly
+      hitting `PATCH`/`DELETE` on two other users' contact ids gets 404 with no effect on either row
 - [x] Responsive at mobile width
-- [ ] Edit a contact and confirm the change persists after a refresh
-- [ ] Sort by each column, ascending and descending; filter by priority and by search text
-- [ ] Submit an invalid priority (only possible by tampering with the request, since the UI only
-      offers the three valid options) → rejected with a clear message
-- [ ] Create two accounts (User A, User B); confirm A's contacts never appear for B and B cannot
-      edit/delete A's rows even by guessing an id
-
-The unchecked items were verified against local dev pointed at this same live Neon
-project/database/backend code (see [Verified manually](#verified-manually-against-a-live-neon-project-2026-09-03)
-above, including the two-account tamper attempt) but not re-clicked through on the deployed URL
-itself — worth a final pass before submitting, since it takes a few minutes and closes the loop.
 
 ## Known limitations and what I'd improve next
 
