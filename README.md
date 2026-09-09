@@ -9,16 +9,23 @@ touch it, enforced by Postgres Row Level Security rather than just app-layer cod
 
 ## Screenshots / walkthrough
 
-> Capture each item below against the live app, drop the images in a `docs/` folder, and replace
-> these lines with `![...](docs/your-file.png)`. Every item has already been manually verified
-> end-to-end against the live production URL (see [Verification checklist](#verification-checklist)
-> and the detailed results above) — what's missing here is just the visual capture for the README
-> itself.
+Sign in:
 
-- [ ] Sign-in and sign-out flow
-- [ ] Creating, editing, deleting, and refreshing a contact
-- [ ] Two accounts proving User A cannot see or change User B's contacts
-- [ ] An invalid input (empty name or bad priority) failing safely with a clear message
+![Sign in](docs/sign-in.png)
+
+Adding a contact:
+
+![Add contact form](docs/add-contact-form.png)
+
+The resulting contacts table, sortable by column, with priority badges:
+
+![Contacts list](docs/contacts-list.png)
+
+Every functional and security requirement — including sign-out, edit, delete + refresh
+persistence, two-account isolation, and invalid-input rejection — has been manually verified
+end-to-end directly against the live production URL; see the [Verification
+checklist](#verification-checklist) and the detailed request/response logs below for the ones not
+pictured above.
 
 ### Verified manually against a live Neon project (2026-09-03)
 
